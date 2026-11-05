@@ -1,0 +1,21 @@
+# Same checks as the other FivexL Terraform modules, without the parts this module does not need yet.
+# Install: pip install pre-commit && pre-commit install   (run all: pre-commit run -a)
+repos:
+- repo: https://github.com/codespell-project/codespell
+  rev: v2.4.1
+  hooks:
+  - id: codespell
+    args: [-C, "3"]
+    types_or: [python, markdown, terraform]
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v5.0.0
+  hooks:
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+  - id: check-merge-conflict
+- repo: https://github.com/antonbabenko/pre-commit-terraform
+  rev: v1.99.0
+  hooks:
+  - id: terraform_fmt
+  - id: terraform_validate
+  - id: terraform_tflint
