@@ -177,7 +177,7 @@ variable "identity_providers" {
 # ---------------------------------------------------------------------------
 
 variable "redirect_uri_allow_patterns" {
-  description = "Regular expressions a client's redirect URIs must match to be registered. The defaults allow Claude (web, Desktop, mobile), loopback addresses used by Claude Code, the MCP Inspector and Cursor. Use [\".*\"] to allow everything."
+  description = "Regular expressions a client's redirect URIs must match to be registered. The defaults allow Claude (web, Desktop, mobile), loopback addresses used by Claude Code, the MCP Inspector and Cursor. Patterns are matched from the start of the address, so end them with $ to match exactly. Use [\".*\"] to allow everything."
   type        = list(string)
   default = [
     "^https://claude\\.ai/api/mcp/auth_callback$",
@@ -185,6 +185,11 @@ variable "redirect_uri_allow_patterns" {
     "^cursor://anysphere\\.cursor-mcp/oauth/callback$",
     "^http://(localhost|127\\.0\\.0\\.1)(:[0-9]+)?(/.*)?$",
   ]
+
+  validation {
+    condition     = length(var.redirect_uri_allow_patterns) > 0
+    error_message = "redirect_uri_allow_patterns must not be empty (an empty list would refuse every registration). Use [\".*\"] on purpose to allow every callback address."
+  }
 }
 
 variable "register_throttle_rate_limit" {

@@ -105,7 +105,8 @@ def valid_redirect_uris(uris):
     for uri in uris:
         if not isinstance(uri, str) or len(uri) > 2048:
             return False
-        if REDIRECT_PATTERNS and not any(p.match(uri) for p in REDIRECT_PATTERNS):
+        # Fail closed: with no patterns configured nothing matches and every registration is refused.
+        if not any(p.match(uri) for p in REDIRECT_PATTERNS):
             return False
     return True
 
