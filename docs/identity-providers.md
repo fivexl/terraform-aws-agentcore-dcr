@@ -143,21 +143,47 @@ So for Identity Center the route is **SAML**, as described below. OIDC providers
 Sources: IAM Identity Center User Guide, "Customer managed applications" and "Single sign-on access to SAML 2.0 and OAuth 2.0 applications";
 IAM Identity Center OIDC API Reference, "Welcome".
 
-### Identity Center with SAML
-The module can create SAML providers with the `saml_providers` input (see section 5). The manual steps in Identity Center are:
+### Identity Center with SAML (tested 9 November 2026)
+**Result: works end to end with Claude Code.** A direct login ended on `localhost:33418/callback?code=...`, the user `IdentityCenter_<email>` was created
+with the right email, and the check Lambda logged `Allowed: domain <domain> (trusted provider IdentityCenter)`. As with every SAML provider the user shows
+"email verified: no" in Cognito (see section 5); that is expected.
 
-1. In IAM Identity Center: **Applications, Customer managed, Add application, I have an application I want to set up, SAML 2.0**.
-2. Download the **IAM Identity Center SAML metadata file**.
-3. Application ACS URL: `https://<cognito-domain-host>/saml2/idpresponse`
-4. Application SAML audience: `urn:amazon:cognito:sp:<user-pool-id>`
-5. Attribute mapping: the user's email to `email`. **Assign** the users or groups that may log in.
-6. In Terraform: pass the downloaded metadata file to `saml_providers` (section 5). Or by hand in Cognito:
-   **Social and external providers, Add an identity provider, SAML**, upload the metadata file, map `email`,
-   and enable it on the app client.
+The module creates the Cognito side with the `saml_providers` input (section 5). The steps in Identity Center (console, Region of your Identity Center instance):
+
+1. **IAM Identity Center, Applications, Customer managed tab, Add application.** Choose **I have an application I want to set up**, then **SAML 2.0**, then Next.
+   (The catalogue entry is called "Custom SAML 2.0 application".) Give it a display name, for example `MCP-Cognito-test`.
+2. Under **IAM Identity Center metadata**, **Download** the **IAM Identity Center SAML metadata file**. It is public information, not a secret.
+3. Under **Application metadata** choose **Manually type your metadata values** and enter:
+   - **Application ACS URL:** `https://<cognito-domain-host>/saml2/idpresponse`
+   - **Application SAML audience:** `urn:amazon:cognito:sp:<user-pool-id>`
+4. Submit. On the application page choose **Actions, Edit attribute mappings**:
+   - **Subject:** `${user:email}`, format **emailAddress**.
+   - **Add new attribute mapping:** application attribute `email`, maps to `${user:email}`, format **unspecified**.
+     The name must be exactly `email`, because that is what the module looks for by default (change it with `attribute_mapping` if you name it differently).
+   - Save changes.
+5. **Assign users and groups** (the application page, Assigned users, Assign users). Assignments are required, so only the people you assign can sign in.
+   Prefer groups over single users, as AWS recommends. Nested groups are not supported.
+6. In Terraform pass the downloaded file to the module:
+   ```hcl
+   saml_providers = {
+     IdentityCenter = {
+       metadata_file = file("idc-saml-metadata.xml")
+     }
+   }
+   ```
+   In the example this is the variable `idc_saml_metadata_path`. Apply, then test with the direct address from the "Status" part of section 5, using `identity_provider=IdentityCenter`.
+
+Good to know:
+- The application is separate from the existing applications (such as the AWS Management Console one). Nothing else is changed by adding it. It can be deleted later without effect on anyone.
+- Identity Center can be managed from a delegated administrator account, not only from the management account.
+- The people who sign in must have an email in `allowed_email_domains`, otherwise the check Lambda refuses them.
+- Clicking the application's tile in the Identity Center portal starts the login on the Identity Center side and fails with a RelayState error, exactly like the Google tile (see section 5).
+  The login has to start at Cognito, which is what MCP clients do.
+- The SAML metadata (certificate) can be rotated by AWS; if logins suddenly fail, download the metadata again and apply.
 
 ---
 
-## 4. GitHub (research notes, NOT tested yet, 3 November 2026)
+## 4. GitHub (through a wrapper, tested 3 November 2026, experimental)
 
 **Goal:** let people sign in with their GitHub account instead of Google.
 
@@ -348,7 +374,7 @@ and an app client with it cannot also offer Google, GitHub or other non-SAML pro
   attribute mapping with the long names (saved), User access ON for the organisational unit.
 - What was needed on our side: the metadata file from Google's three values (sign-in address, entity ID, certificate valid until 8 November 2028),
   the exact attribute name, and the trusted-provider rule above.
-- Not tried: Identity Center (same module input; needs its own metadata file and the same attribute check), group-based authorization (Google can send the groups attribute).
+- Identity Center works with the same input (section 3). Not tried: group-based authorization (Google and Identity Center can send groups).
 - Tip for testing: use a direct address instead of Claude Code, so an old Cognito session cannot hide the result:
   `https://<cognito-domain-host>/oauth2/authorize?identity_provider=GoogleSAML&response_type=code&client_id=<client-id>&redirect_uri=http://localhost:33418/callback&scope=openid+email&prompt=login`.
   A final "This site can't be reached" page at `localhost:33418/callback?code=...` means success (the user appears in Cognito). The same page with `?error=...` means refusal.

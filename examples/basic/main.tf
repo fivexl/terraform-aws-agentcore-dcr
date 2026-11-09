@@ -101,6 +101,12 @@ variable "google_saml_metadata_path" {
   default     = null
 }
 
+variable "idc_saml_metadata_path" {
+  description = "Path to the SAML metadata XML downloaded from an IAM Identity Center customer managed application. Empty means no Identity Center provider."
+  type        = string
+  default     = null
+}
+
 locals {
   github_enabled = var.github_client_id != null
 
@@ -177,12 +183,20 @@ module "agentcore_dcr" {
       endpoints = module.github_wrapper[0].endpoints
     }
   } : {})
-  saml_providers = var.google_saml_metadata_path == null ? {} : {
-    GoogleSAML = {
-      metadata_file     = file(var.google_saml_metadata_path)
-      attribute_mapping = { email = var.google_saml_email_attribute }
-    }
-  }
+  saml_providers = merge(
+    var.google_saml_metadata_path == null ? {} : {
+      GoogleSAML = {
+        metadata_file     = file(var.google_saml_metadata_path)
+        attribute_mapping = { email = var.google_saml_email_attribute }
+      }
+    },
+    # IAM Identity Center sends the attribute "email" (the mapping set in the application).
+    var.idc_saml_metadata_path == null ? {} : {
+      IdentityCenter = {
+        metadata_file = file(var.idc_saml_metadata_path)
+      }
+    },
+  )
   oidc_client_secrets   = merge(var.oidc_client_secrets, local.github_enabled ? { GitHub = var.github_client_secret } : {})
   include_cognito_users = var.include_cognito_users
   allowed_email_domains = var.allowed_email_domains

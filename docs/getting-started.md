@@ -91,4 +91,4 @@ Set the same environment variables first if you used providers with secrets. Als
 | GitHub through the wrapper | Works with Claude Code (experimental) |
 | SAML with a Google Workspace app | Works with Claude Code |
 | Claude web and Desktop | Worked on the first version of this design; not re-tested on this module |
-| IAM Identity Center | Not tried yet |
+| IAM Identity Center (customer managed SAML application) | Works with Claude Code |

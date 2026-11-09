@@ -91,7 +91,7 @@ Install the checks that run before each commit with `pip install pre-commit && p
 - A token that was already issued stays valid until it expires, also after a person leaves the company.
 - Client secrets (Google, GitHub) end up in the Terraform state, and the GitHub secret also in the Lambda settings. Use an encrypted remote state and never commit state files.
 - Tested login providers: Cognito users, Google (OIDC), GitHub (through a community wrapper, experimental: no organisation check, signing key bundled in the code)
-  and SAML with a Google Workspace app. IAM Identity Center is not tried yet.
+  and SAML with a Google Workspace app and with an IAM Identity Center customer managed application.
 
 ## Credit and licence
 Inspired by [stache-ai/agentcore-dcr](https://github.com/stache-ai/agentcore-dcr) (MIT), see [NOTICE](NOTICE).
