@@ -101,6 +101,30 @@ variable "google_saml_metadata_path" {
   default     = null
 }
 
+variable "google_saml_groups_attribute" {
+  description = "Name of the SAML attribute that carries the groups in the Google Workspace app (the group mapping in the app). Empty means groups are not read."
+  type        = string
+  default     = null
+}
+
+variable "idc_saml_groups_attribute" {
+  description = "Name of the SAML attribute that carries the groups in the IAM Identity Center application, if you mapped one. Empty means groups are not read."
+  type        = string
+  default     = null
+}
+
+variable "allowed_groups" {
+  description = "Only people in one of these groups get tokens. Empty means no group restriction. Needs a SAML provider that sends groups."
+  type        = list(string)
+  default     = []
+}
+
+variable "require_groups_at_gateway" {
+  description = "Experimental: also make the gateway check the groups claim."
+  type        = bool
+  default     = false
+}
+
 variable "idc_saml_metadata_path" {
   description = "Path to the SAML metadata XML downloaded from an IAM Identity Center customer managed application. Empty means no Identity Center provider."
   type        = string
@@ -188,18 +212,23 @@ module "agentcore_dcr" {
       GoogleSAML = {
         metadata_file     = file(var.google_saml_metadata_path)
         attribute_mapping = { email = var.google_saml_email_attribute }
+        groups_attribute  = var.google_saml_groups_attribute
       }
     },
     # IAM Identity Center sends the attribute "email" (the mapping set in the application).
     var.idc_saml_metadata_path == null ? {} : {
       IdentityCenter = {
-        metadata_file = file(var.idc_saml_metadata_path)
+        metadata_file    = file(var.idc_saml_metadata_path)
+        groups_attribute = var.idc_saml_groups_attribute
       }
     },
   )
   oidc_client_secrets   = merge(var.oidc_client_secrets, local.github_enabled ? { GitHub = var.github_client_secret } : {})
   include_cognito_users = var.include_cognito_users
   allowed_email_domains = var.allowed_email_domains
+
+  allowed_groups            = var.allowed_groups
+  require_groups_at_gateway = var.require_groups_at_gateway
 }
 
 output "gateway_mcp_url" {

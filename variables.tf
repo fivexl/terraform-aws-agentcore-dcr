@@ -134,12 +134,16 @@ variable "saml_providers" {
     metadata XML as text, for example file("metadata.xml")) or metadata_url (a public address). The provider is told
     about the user pool through the ACS URL https://<cognito-domain-host>/saml2/idpresponse and the entity ID
     urn:amazon:cognito:sp:<user-pool-id>. The attribute mapping keys are Cognito attributes and the values are the
-    attribute names the provider sends (for example email = "email").
+    attribute names the provider sends (for example email = "email"). groups_attribute is the name of the SAML
+    attribute that carries the person's groups (for example the long
+    http://schemas.xmlsoap.org/ws/2005/05/identity/claims/groups address a Google Workspace app uses); the module
+    stores it in the custom user attribute custom:groups so that allowed_groups can use it.
   EOT
   type = map(object({
     metadata_file     = optional(string)
     metadata_url      = optional(string)
     attribute_mapping = optional(map(string), { email = "email" })
+    groups_attribute  = optional(string)
   }))
   default = {}
 
@@ -158,6 +162,30 @@ variable "allowed_email_domains" {
     condition     = alltrue([for d in var.allowed_email_domains : can(regex("^[a-z0-9.-]+\\.[a-z]{2,}$", d))])
     error_message = "Each domain must look like example.com (lower case, no @)."
   }
+}
+
+variable "allowed_groups" {
+  description = <<-EOT
+    Only people who belong to at least one of these groups may get tokens (for example ["developers"]). Empty means no
+    group restriction. Groups come from the identity provider, so this works with the providers that send them:
+    SAML providers with groups_attribute set. People from providers that send no groups (plain Google login, GitHub,
+    Cognito users) are refused while this is set. The list is also written into the token as the cognito:groups claim.
+    Matching in the check function ignores case and also accepts a group address (name@domain) for the name.
+    Needs create_user_pool = true. Group changes at the provider apply at the next full sign-in, not on a token refresh.
+  EOT
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for g in var.allowed_groups : length(trimspace(g)) > 0 && !can(regex(",", g))])
+    error_message = "Group names must not be empty and must not contain a comma."
+  }
+}
+
+variable "require_groups_at_gateway" {
+  description = "Experimental. Also make the AgentCore Gateway require that the token's cognito:groups claim contains one of allowed_groups (exact, case-sensitive match). The check function already refuses people outside the groups; this adds a second check at the gateway. Test before relying on it."
+  type        = bool
+  default     = false
 }
 
 variable "managed_login_version" {

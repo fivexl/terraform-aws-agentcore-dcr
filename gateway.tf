@@ -56,6 +56,23 @@ resource "aws_bedrockagentcore_gateway" "this" {
       allowed_clients = [
         aws_cognito_user_pool_client.initial.id,
       ]
+
+      # Optional second check: the token's cognito:groups claim must contain one of the allowed groups.
+      dynamic "custom_claim" {
+        for_each = var.require_groups_at_gateway && length(var.allowed_groups) > 0 ? [1] : []
+        content {
+          inbound_token_claim_name       = "cognito:groups"
+          inbound_token_claim_value_type = "STRING_ARRAY"
+
+          authorizing_claim_match_value {
+            claim_match_operator = "CONTAINS_ANY"
+
+            claim_match_value {
+              match_value_string_list = var.allowed_groups
+            }
+          }
+        }
+      }
     }
   }
 

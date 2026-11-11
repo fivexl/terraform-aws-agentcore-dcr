@@ -9,6 +9,9 @@ locals {
   user_pool_arn = "arn:aws:cognito-idp:${local.region}:${local.account_id}:userpool/${local.user_pool_id}"
   cognito_host  = var.create_user_pool ? "${var.cognito_domain_prefix}.auth.${local.region}.amazoncognito.com" : var.cognito_domain_host
 
+  # Groups from the identity provider are stored in the custom attribute custom:groups.
+  groups_enabled = length(var.allowed_groups) > 0 || anytrue([for k, v in var.saml_providers : v.groups_attribute != null])
+
   resource_scopes = [for s in var.resource_server_scopes : "${var.name_prefix}/${s}"]
   all_scopes      = concat(["openid", "email", "phone", "profile"], local.resource_scopes)
   # Providers a registered client may use: Cognito's own users (optional), the OIDC
@@ -27,8 +30,26 @@ resource "aws_cognito_user_pool" "this" {
   name = "${var.name_prefix}-pool"
   tags = var.tags
 
+  # Custom attribute that receives the groups sent by SAML providers. Attributes can be added to an existing
+  # pool, never changed or removed.
+  dynamic "schema" {
+    for_each = local.groups_enabled ? [1] : []
+    content {
+      name                     = "groups"
+      attribute_data_type      = "String"
+      developer_only_attribute = false
+      mutable                  = true
+      required                 = false
+
+      string_attribute_constraints {
+        min_length = 0
+        max_length = 2048
+      }
+    }
+  }
+
   dynamic "lambda_config" {
-    for_each = length(var.allowed_email_domains) > 0 ? [1] : []
+    for_each = local.restrict_signin ? [1] : []
     content {
       pre_sign_up = aws_lambda_function.signup_domain[0].arn
 
@@ -94,7 +115,10 @@ resource "aws_cognito_identity_provider" "saml" {
     each.value.metadata_file != null ? { MetadataFile = each.value.metadata_file } : { MetadataURL = each.value.metadata_url },
   )
 
-  attribute_mapping = each.value.attribute_mapping
+  attribute_mapping = merge(
+    each.value.attribute_mapping,
+    each.value.groups_attribute == null ? {} : { "custom:groups" = each.value.groups_attribute },
+  )
 }
 
 resource "aws_cognito_resource_server" "this" {

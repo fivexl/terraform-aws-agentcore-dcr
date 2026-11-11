@@ -1,8 +1,10 @@
 # Optional authorization at sign-in: only people whose verified email belongs to an
-# approved domain can be created in the user pool. Needs create_user_pool = true.
+# approved domain, and who are in an approved group, get tokens. Needs create_user_pool = true.
 # For an existing pool, set this trigger up yourself (see docs).
 locals {
-  restrict_domains = length(var.allowed_email_domains) > 0 && var.create_user_pool
+  restrict_domains = (length(var.allowed_email_domains) > 0 || length(var.allowed_groups) > 0) && var.create_user_pool
+  # Name used by the user pool for the trigger wiring (same condition).
+  restrict_signin = local.restrict_domains
 }
 
 data "archive_file" "signup" {
@@ -60,6 +62,7 @@ resource "aws_lambda_function" "signup_domain" {
   environment {
     variables = {
       ALLOWED_EMAIL_DOMAINS = join(",", var.allowed_email_domains)
+      ALLOWED_GROUPS        = join(",", var.allowed_groups)
       # SAML providers are the company's own login systems: they never send email_verified.
       TRUSTED_PROVIDERS = join(",", keys(var.saml_providers))
     }
