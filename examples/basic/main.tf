@@ -101,6 +101,12 @@ variable "google_saml_metadata_path" {
   default     = null
 }
 
+variable "owner_tag" {
+  description = "Value of the owner tag on every resource."
+  type        = string
+  default     = "example"
+}
+
 variable "google_saml_groups_attribute" {
   description = "Name of the SAML attribute that carries the groups in the Google Workspace app (the group mapping in the app). Empty means groups are not read."
   type        = string
@@ -135,7 +141,7 @@ locals {
   github_enabled = var.github_client_id != null
 
   tags = {
-    owner   = "example"
+    owner   = var.owner_tag
     purpose = "agentcore-dcr"
   }
 }
