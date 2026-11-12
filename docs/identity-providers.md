@@ -428,8 +428,14 @@ accepts a group address (`name@domain`) for the group name.
 - How Cognito stores a list of several groups from SAML is not documented in detail; the check function accepts a JSON list and lists separated by commas, semicolons or line breaks.
 
 ### Status
-Built and unit-tested (the check function, the token claim and the group matching). Not yet tested live with a real SAML login.
-To test: set `groups_attribute` and `allowed_groups`, apply, sign in with a person who is in the group (should work, and `custom:groups` appears on the user in Cognito),
+Built, unit-tested, and tested live (12 November 2026) with a Google Workspace SAML app and Claude Code:
+- The app sent the person's group in the SAML login; Cognito stored it in `custom:groups` as the plain text `aws.development`. The user's attribute is updated at the next sign-in after the person is added to the group.
+- A member of the allowed group got tokens (log: `Allowed: in an approved group (groups received: aws.development)`).
+- With `allowed_groups` set to a group the person is not in, the sign-in was refused (log: `Rejected: not in an approved group (groups received: aws.development)`).
+- Plain Google and GitHub sign-ins were refused while `allowed_groups` was set, as documented (log: `no groups received`).
+
+Not yet tested live: a person in **several** groups (how Cognito stores the list), IAM Identity Center groups, and `require_groups_at_gateway`.
+To test it yourself: set `groups_attribute` and `allowed_groups`, apply, sign in with a person who is in the group (should work, and `custom:groups` appears on the user in Cognito),
 then change `allowed_groups` to a group the person is not in and sign in again (should be refused, with the reason in the check function's log).
 Next versions: map groups to scopes (read and write) and add per-tool rules with the gateway's Cedar policies.
 
