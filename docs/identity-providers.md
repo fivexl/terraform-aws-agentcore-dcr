@@ -99,6 +99,7 @@ Notes:
 - Users created by an administrator can be created, but they still need an approved email to receive tokens.
 - It needs `create_user_pool = true`. For an existing pool, set up a pre sign-up trigger yourself.
 - It relies on `email_verified`, which this module maps by default.
+- To restrict by role as well, see section 6 (`allowed_groups`).
 
 ---
 
@@ -378,6 +379,65 @@ and an app client with it cannot also offer Google, GitHub or other non-SAML pro
 - Tip for testing: use a direct address instead of Claude Code, so an old Cognito session cannot hide the result:
   `https://<cognito-domain-host>/oauth2/authorize?identity_provider=GoogleSAML&response_type=code&client_id=<client-id>&redirect_uri=http://localhost:33418/callback&scope=openid+email&prompt=login`.
   A final "This site can't be reached" page at `localhost:33418/callback?code=...` means success (the user appears in Cognito). The same page with `?error=...` means refusal.
+
+---
+
+## 6. Restricting by group (version 1)
+
+Signing in proves who a person is, and the email domain says which company they belong to. A **group** says what role they have.
+With `allowed_groups` only people in at least one of the listed groups get tokens, and their groups are written into the token as the
+`cognito:groups` claim, so the gateway and other services can use them.
+
+```hcl
+saml_providers = {
+  GoogleSAML = {
+    metadata_file    = file("google-saml-metadata.xml")
+    groups_attribute = "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/groups"   # the exact name set in the app
+  }
+}
+allowed_groups = ["developers"]
+```
+
+### How the groups travel
+1. The identity provider sends the person's groups in the SAML login, under an attribute name the admin chose.
+2. Cognito stores them in the custom user attribute `custom:groups`. The module adds this attribute to the pool (attributes can be added to an
+   existing pool, never changed or removed) and maps `groups_attribute` to it.
+3. The check function reads it **every time tokens are issued** and refuses the person if no group matches.
+4. It writes the groups into the `cognito:groups` claim of the ID and access token.
+5. Optional, experimental: `require_groups_at_gateway = true` makes the AgentCore Gateway also require that claim to contain one of the groups.
+   The gateway match is exact and case-sensitive, so use the group names exactly as they appear in the token.
+
+### Setting it up in Google Workspace
+In the SAML app, under **Attribute mapping, Group membership**, add the groups and give them an app attribute name (for example the same long
+`.../claims/groups` style as the other attributes). Put that exact name into `groups_attribute`. Matching in the check function ignores case and
+accepts a group address (`name@domain`) for the group name.
+
+### What happens
+| Person | Result |
+|---|---|
+| In an allowed group | Gets tokens; groups appear in `cognito:groups` |
+| Not in an allowed group | Refused: "Sign-in is limited to approved groups" |
+| From a provider that sends no groups (plain Google login, GitHub) or a Cognito user | Refused while `allowed_groups` is set |
+| Any person, when `allowed_groups` is empty | Not restricted; their groups (if the provider sent any) are still written into the token |
+
+### Limits
+- Only providers that send groups work: SAML providers with `groups_attribute`. IAM Identity Center is not tried: it depends on whether the application can send groups.
+- A group change at the provider applies at the **next full sign-in**, not when a token is refreshed.
+- The attribute holds at most 2,048 characters, which is enough for a few dozen group names but not for hundreds.
+- People created before the attribute existed have it empty until their next SAML sign-in.
+- How Cognito stores a list of several groups from SAML is not documented in detail; the check function accepts a JSON list and lists separated by commas, semicolons or line breaks.
+
+### Status
+Built, unit-tested, and tested live (12 November 2026) with a Google Workspace SAML app and Claude Code:
+- The app sent the person's group in the SAML login; Cognito stored it in `custom:groups` as the plain text `developers`. The user's attribute is updated at the next sign-in after the person is added to the group.
+- A member of the allowed group got tokens (log: `Allowed: in an approved group (groups received: developers)`).
+- With `allowed_groups` set to a group the person is not in, the sign-in was refused (log: `Rejected: not in an approved group (groups received: developers)`).
+- Plain Google and GitHub sign-ins were refused while `allowed_groups` was set, as documented (log: `no groups received`).
+
+Not yet tested live: a person in **several** groups (how Cognito stores the list), IAM Identity Center groups, and `require_groups_at_gateway`.
+To test it yourself: set `groups_attribute` and `allowed_groups`, apply, sign in with a person who is in the group (should work, and `custom:groups` appears on the user in Cognito),
+then change `allowed_groups` to a group the person is not in and sign in again (should be refused, with the reason in the check function's log).
+Next versions: map groups to scopes (read and write) and add per-tool rules with the gateway's Cedar policies.
 
 ---
 

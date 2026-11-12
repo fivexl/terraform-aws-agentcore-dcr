@@ -67,10 +67,12 @@ For passwordless login set `include_cognito_users = false` and add a provider (s
 | Input | What it does |
 |---|---|
 | `oidc_providers` / `oidc_client_secrets` | Create Google or generic OIDC sign-in providers in the user pool (secrets kept separate) |
-| `saml_providers` | Create SAML providers (Google Workspace SAML app, IAM Identity Center) from a metadata file or address |
+| `saml_providers` | Create SAML providers (Google Workspace SAML app, IAM Identity Center) from a metadata file or address. `groups_attribute` names the SAML attribute that carries the person's groups |
 | `oidc_providers[*].endpoints` | Manual authorize, token, userinfo and key addresses, for providers whose discovery document does not work with Cognito (used for GitHub) |
 | `include_cognito_users` | Set to `false` to remove username and password completely |
 | `allowed_email_domains` | Only people with an email in these domains get in (checked at sign-up and at every token issue). Google and GitHub users must have a verified email; users of a provider listed in `saml_providers` are trusted, because SAML never reports `email_verified` |
+| `allowed_groups` | Only people in one of these groups get tokens (needs a SAML provider with `groups_attribute`). The groups are also written into the token as `cognito:groups`. See [docs/identity-providers.md](docs/identity-providers.md), section 6 |
+| `require_groups_at_gateway` | Experimental: the AgentCore Gateway also checks the groups claim |
 | `redirect_uri_allow_patterns` | Which client callback addresses may register |
 | `identity_providers` | Names of providers created elsewhere that clients may use |
 

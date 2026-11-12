@@ -27,8 +27,24 @@ resource "aws_cognito_user_pool" "this" {
   name = "${var.name_prefix}-pool"
   tags = var.tags
 
+  # Custom attribute that receives the groups sent by SAML providers (custom:groups). It is always created:
+  # Cognito can add attributes to an existing pool but never change or remove them, so tying it to a setting
+  # would make switching the groups feature off fail with "cannot modify or remove schema items".
+  schema {
+    name                     = "groups"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    required                 = false
+
+    string_attribute_constraints {
+      min_length = 0
+      max_length = 2048
+    }
+  }
+
   dynamic "lambda_config" {
-    for_each = length(var.allowed_email_domains) > 0 ? [1] : []
+    for_each = local.restrict_signin ? [1] : []
     content {
       pre_sign_up = aws_lambda_function.signup_domain[0].arn
 
@@ -94,7 +110,10 @@ resource "aws_cognito_identity_provider" "saml" {
     each.value.metadata_file != null ? { MetadataFile = each.value.metadata_file } : { MetadataURL = each.value.metadata_url },
   )
 
-  attribute_mapping = each.value.attribute_mapping
+  attribute_mapping = merge(
+    each.value.attribute_mapping,
+    each.value.groups_attribute == null ? {} : { "custom:groups" = each.value.groups_attribute },
+  )
 }
 
 resource "aws_cognito_resource_server" "this" {
