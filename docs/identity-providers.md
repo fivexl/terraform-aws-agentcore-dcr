@@ -429,9 +429,9 @@ accepts a group address (`name@domain`) for the group name.
 
 ### Status
 Built, unit-tested, and tested live (12 November 2026) with a Google Workspace SAML app and Claude Code:
-- The app sent the person's group in the SAML login; Cognito stored it in `custom:groups` as the plain text `aws.development`. The user's attribute is updated at the next sign-in after the person is added to the group.
-- A member of the allowed group got tokens (log: `Allowed: in an approved group (groups received: aws.development)`).
-- With `allowed_groups` set to a group the person is not in, the sign-in was refused (log: `Rejected: not in an approved group (groups received: aws.development)`).
+- The app sent the person's group in the SAML login; Cognito stored it in `custom:groups` as the plain text `developers`. The user's attribute is updated at the next sign-in after the person is added to the group.
+- A member of the allowed group got tokens (log: `Allowed: in an approved group (groups received: developers)`).
+- With `allowed_groups` set to a group the person is not in, the sign-in was refused (log: `Rejected: not in an approved group (groups received: developers)`).
 - Plain Google and GitHub sign-ins were refused while `allowed_groups` was set, as documented (log: `no groups received`).
 
 Not yet tested live: a person in **several** groups (how Cognito stores the list), IAM Identity Center groups, and `require_groups_at_gateway`.
