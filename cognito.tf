@@ -9,9 +9,6 @@ locals {
   user_pool_arn = "arn:aws:cognito-idp:${local.region}:${local.account_id}:userpool/${local.user_pool_id}"
   cognito_host  = var.create_user_pool ? "${var.cognito_domain_prefix}.auth.${local.region}.amazoncognito.com" : var.cognito_domain_host
 
-  # Groups from the identity provider are stored in the custom attribute custom:groups.
-  groups_enabled = length(var.allowed_groups) > 0 || anytrue([for k, v in var.saml_providers : v.groups_attribute != null])
-
   resource_scopes = [for s in var.resource_server_scopes : "${var.name_prefix}/${s}"]
   all_scopes      = concat(["openid", "email", "phone", "profile"], local.resource_scopes)
   # Providers a registered client may use: Cognito's own users (optional), the OIDC
@@ -30,21 +27,19 @@ resource "aws_cognito_user_pool" "this" {
   name = "${var.name_prefix}-pool"
   tags = var.tags
 
-  # Custom attribute that receives the groups sent by SAML providers. Attributes can be added to an existing
-  # pool, never changed or removed.
-  dynamic "schema" {
-    for_each = local.groups_enabled ? [1] : []
-    content {
-      name                     = "groups"
-      attribute_data_type      = "String"
-      developer_only_attribute = false
-      mutable                  = true
-      required                 = false
+  # Custom attribute that receives the groups sent by SAML providers (custom:groups). It is always created:
+  # Cognito can add attributes to an existing pool but never change or remove them, so tying it to a setting
+  # would make switching the groups feature off fail with "cannot modify or remove schema items".
+  schema {
+    name                     = "groups"
+    attribute_data_type      = "String"
+    developer_only_attribute = false
+    mutable                  = true
+    required                 = false
 
-      string_attribute_constraints {
-        min_length = 0
-        max_length = 2048
-      }
+    string_attribute_constraints {
+      min_length = 0
+      max_length = 2048
     }
   }
 
