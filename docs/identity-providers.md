@@ -475,6 +475,41 @@ To test: set `group_scopes`, apply, sign in as a member of each group and decode
 
 ---
 
+## 8. Per-tool rules (version 3, design)
+
+Version 2 puts the right scopes into the token. The gateway still lets every signed-in person call every tool. Version 3 closes that gap with
+**AgentCore Policy** (Cedar rules) attached to the gateway. **This section is a design from reading the AWS documentation; nothing here is built or tested.**
+
+### What AWS provides
+- A **policy engine** attached to the gateway (`aws_bedrockagentcore_policy_engine`, `aws_bedrockagentcore_policy` and the gateway's
+  `policy_engine_configuration` exist in the AWS provider). It has a mode setting; start with the mode that only logs, then enforce.
+- For a gateway with OAuth login, the caller is an `AgentCore::OAuthUser`. The claims of the token are its **tags**, so the scope claim can be read
+  with `principal.getTag("scope")`.
+- Each tool is an action named `<TargetName>___<ToolName>` (three underscores), for example `tf-mcp-target___hello`. Cedar has no wildcard actions.
+- The engine is **default-deny**: once attached, a tool with no matching `permit` rule is blocked, and `forbid` always wins.
+
+### Rules we would generate (sketch)
+```cedar
+permit(
+  principal is AgentCore::OAuthUser,
+  action == AgentCore::Action::"tf-mcp-target___hello",
+  resource == AgentCore::Gateway::"<gateway arn>"
+) when { principal.hasTag("scope") && principal.getTag("scope") like "*mcp/read*" };
+```
+A tool that changes things would require the `write` scope in the same way. The settings could look like `tool_scopes = { hello = "read", delete_record = "write" }`.
+
+### Open questions
+- The scope tag is one space-separated string and Cedar's `like` is a pattern match, so a scope name that is part of another (`read` and `read-all`) could match by mistake. Use scope names that do not overlap.
+- Default-deny means a forgotten tool becomes unreachable. The module would create one rule per tool, and the plan must show them.
+- Whether policies also hide tools from the tool list, and how a Runtime-hosted server's tools are named, have to be checked on a real gateway.
+- Per-argument rules (for example limit by country or amount) are possible through `context.input` and are a later step.
+
+### Plan
+1. Create a policy engine and the rules by hand on the test gateway; call a tool with a read-only and a read-write person.
+2. When that works, generate the rules from a setting in the module (default off).
+
+---
+
 ## Future ideas
 - Cognito's own passwordless sign-in (passkeys or an email code) is a possible option without an external provider. Not tested.
 
