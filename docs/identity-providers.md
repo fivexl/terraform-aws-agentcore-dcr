@@ -470,8 +470,11 @@ group_scopes = {
 - Group changes apply at the next full sign-in; on a token refresh the groups stored at the last sign-in are used.
 
 ### Status
-Built and unit-tested (scope matching, the version 2 response, the version 1 format kept, refresh tokens). **Not yet tested live** with a real login.
-To test: set `group_scopes`, apply, sign in as a member of each group and decode the access token (the `scope` claim should list only the allowed scopes).
+Built, unit-tested (scope matching, the version 2 response, the version 1 format kept, refresh tokens) and tested live (16 November 2026) with a
+Google Workspace SAML app: a member of a group mapped to `["read", "write"]` kept both scopes (function log: nothing removed); with the group mapped to `["read"]`
+the function removed `write` and the access token from the login only had `read` in its `scope` claim (and `cognito:groups` still listed the group).
+Not tested: several groups with different scopes, and Identity Center.
+To test it yourself: set `group_scopes`, apply, sign in with the authorization code flow and decode the access token (the `scope` claim should list only the allowed scopes).
 
 ---
 
