@@ -42,3 +42,8 @@ output "dcr_lambda_name" {
   description = "Name of the registration function (useful for reading its logs)."
   value       = aws_lambda_function.dcr.function_name
 }
+
+output "gateway_role_name" {
+  description = "Name of the IAM role the Gateway uses. Attach policies to it to let the Gateway call other targets (for example an AgentCore Runtime)."
+  value       = aws_iam_role.gateway.name
+}
