@@ -441,6 +441,40 @@ Next versions: map groups to scopes (read and write) and add per-tool rules with
 
 ---
 
+## 7. Roles by group (version 2)
+
+Version 1 decides **who may sign in**. Version 2 decides **what they may hold**: each group is mapped to the custom scopes
+(`read`, `write`, ...) its members get. A person keeps only the scopes their groups allow; the others are removed from the access token.
+
+```hcl
+allowed_groups = ["developers", "viewers"]
+group_scopes = {
+  developers = ["read", "write"]
+  viewers    = ["read"]
+}
+```
+
+### How it works
+1. The module asks Cognito for **version 2** events of the pre token generation trigger (needs the Essentials or Plus plan). Version 2 events carry
+   the scopes of the token and let the function change them.
+2. At every token issue and refresh, the check function looks up the person's groups (from `custom:groups`, see section 6), works out which custom
+   scopes they are entitled to (the union over all their groups) and answers with `scopesToSuppress` for the rest.
+3. Standard scopes (`openid`, `email`, `profile`) are never touched. A person in **no** listed group keeps **none** of the custom scopes.
+4. The groups are still written into `cognito:groups`, now in the version 2 response format.
+
+### Limits
+- **The gateway does not read scopes by itself.** Without a rule that checks them, a person without `write` can still call a tool that writes. Use this
+  together with per-tool rules (version 3), or a service that reads the `scope` claim.
+- Scopes are removed, never added: a client only gets a scope it asked for (the registration endpoint grants all of them by default).
+- The scope names in `group_scopes` must exist in `resource_server_scopes` (checked at plan time).
+- Group changes apply at the next full sign-in; on a token refresh the groups stored at the last sign-in are used.
+
+### Status
+Built and unit-tested (scope matching, the version 2 response, the version 1 format kept, refresh tokens). **Not yet tested live** with a real login.
+To test: set `group_scopes`, apply, sign in as a member of each group and decode the access token (the `scope` claim should list only the allowed scopes).
+
+---
+
 ## Future ideas
 - Cognito's own passwordless sign-in (passkeys or an email code) is a possible option without an external provider. Not tested.
 

@@ -21,6 +21,12 @@ Groups (ALLOWED_GROUPS, optional):
   mapped attributes to that trigger. When tokens are issued, the person's groups are also written into the
   cognito:groups claim of the ID and access token, so the gateway and other services can use them.
   Providers that send no groups (plain Google login, GitHub, Cognito users) are refused while groups are required.
+
+Group scopes (GROUP_SCOPES, optional, version 2):
+  Maps a group to the custom scopes (for example mcp/read, mcp/write) its members may hold. When it is set the
+  user pool sends version 2 events, and the scopes a person is not entitled to are removed from the access token
+  (scopesToSuppress). A person in no listed group keeps none of the custom scopes. Standard scopes (openid, email,
+  profile) are never touched.
 """
 
 import json
@@ -38,6 +44,21 @@ TRUSTED_PROVIDERS = [p.strip() for p in os.environ.get("TRUSTED_PROVIDERS", "").
 SIGN_UP_SOURCES = {"PreSignUp_ExternalProvider", "PreSignUp_SignUp"}
 
 GROUPS_ATTRIBUTE = "custom:groups"
+
+
+def _load_group_scopes(raw):
+    try:
+        data = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(g).strip().lower(): [str(s) for s in scopes] for g, scopes in data.items() if isinstance(scopes, list)}
+
+
+# {group (lower case): [full scope names]} and every custom scope the module manages.
+GROUP_SCOPES = _load_group_scopes(os.environ.get("GROUP_SCOPES"))
+CUSTOM_SCOPES = [s.strip() for s in os.environ.get("RESOURCE_SCOPES", "").split(",") if s.strip()]
 
 
 def provider_of(event, attributes):
@@ -144,6 +165,35 @@ def check_groups(attributes, at_token_time):
     return groups
 
 
+def scopes_to_suppress(groups):
+    """Custom scopes a person must NOT keep in the access token, given their groups (version 2)."""
+    if not GROUP_SCOPES:
+        return []
+    allowed = set()
+    for group in groups:
+        low = group.strip().lower()
+        for key in (low, low.split("@", 1)[0]):
+            allowed.update(GROUP_SCOPES.get(key, []))
+    return [scope for scope in CUSTOM_SCOPES if scope not in allowed]
+
+
+def token_response(event, groups):
+    """The response for the pre token generation trigger, in the format of the event version Cognito sent."""
+    suppress = scopes_to_suppress(groups)
+    if str(event.get("version")) in ("2", "3"):
+        details = {}
+        if groups:
+            details["groupOverrideDetails"] = {"groupsToOverride": groups}
+        if suppress:
+            details["accessTokenGeneration"] = {"scopesToSuppress": suppress}
+            logger.info("Scopes removed from the access token: %s", ", ".join(suppress))
+        return {"claimsAndScopeOverrideDetails": details} if details else None
+    # Version 1 events can only set the groups.
+    if groups:
+        return {"claimsOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": groups}}}
+    return None
+
+
 def handler(event, context):
     source = event.get("triggerSource", "")
     attributes = event.get("request", {}).get("userAttributes", {})
@@ -161,8 +211,10 @@ def handler(event, context):
     elif at_token_time:
         groups = parse_groups(attributes.get(GROUPS_ATTRIBUTE))
 
-    # Put the person's groups into the cognito:groups claim of the ID and access token.
-    if at_token_time and groups:
-        event["response"] = {"claimsOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": groups}}}
+    # Put the person's groups into the cognito:groups claim and remove the scopes their groups do not allow.
+    if at_token_time:
+        response = token_response(event, groups)
+        if response:
+            event["response"] = response
 
     return event

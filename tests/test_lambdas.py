@@ -209,6 +209,86 @@ class GroupsWithoutRestriction(unittest.TestCase):
             self.assertEqual(result["response"], {})
 
 
+SCOPES = ["mcp/read", "mcp/write"]
+
+
+def v2_event(groups_value, version="2", source="TokenGeneration_Authentication"):
+    event = group_event(source, "CompanySAML_x", groups_value, identities=SAML_IDENTITY)
+    event["version"] = version
+    event["request"]["scopes"] = ["openid", "email"] + SCOPES
+    return event
+
+
+class GroupScopes(unittest.TestCase):
+    """Version 2: roles by group (scopes removed from the access token)."""
+
+    def setUp(self):
+        patches = [
+            mock.patch.object(signup, "ALLOWED_GROUPS", []),
+            mock.patch.object(signup, "ALLOWED_DOMAINS", ["example.com"]),
+            mock.patch.object(signup, "GROUP_SCOPES", {"developers": ["mcp/read", "mcp/write"], "viewers": ["mcp/read"]}),
+            mock.patch.object(signup, "CUSTOM_SCOPES", SCOPES),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def suppressed(self, groups_value):
+        result = signup.handler(v2_event(groups_value), None)
+        details = result["response"]["claimsAndScopeOverrideDetails"]
+        return details.get("accessTokenGeneration", {}).get("scopesToSuppress", [])
+
+    def test_developer_keeps_every_scope(self):
+        self.assertEqual(self.suppressed("developers"), [])
+
+    def test_viewer_loses_the_write_scope(self):
+        self.assertEqual(self.suppressed("viewers"), ["mcp/write"])
+
+    def test_the_union_of_several_groups_applies(self):
+        self.assertEqual(self.suppressed('["viewers","developers"]'), [])
+
+    def test_a_person_in_no_listed_group_keeps_no_custom_scope(self):
+        self.assertEqual(self.suppressed("marketing"), SCOPES)
+
+    def test_a_person_without_groups_keeps_no_custom_scope(self):
+        event = v2_event("", version="2")
+        event["request"]["userAttributes"].pop("custom:groups")
+        result = signup.handler(event, None)
+        suppressed = result["response"]["claimsAndScopeOverrideDetails"]["accessTokenGeneration"]["scopesToSuppress"]
+        self.assertEqual(suppressed, SCOPES)
+
+    def test_matching_ignores_case_and_accepts_a_group_address(self):
+        self.assertEqual(self.suppressed("Viewers@example.com"), ["mcp/write"])
+
+    def test_groups_are_still_written_in_the_version_2_format(self):
+        result = signup.handler(v2_event('["viewers"]'), None)
+        groups = result["response"]["claimsAndScopeOverrideDetails"]["groupOverrideDetails"]["groupsToOverride"]
+        self.assertEqual(groups, ["viewers"])
+
+    def test_refresh_tokens_are_handled_too(self):
+        result = signup.handler(v2_event("viewers", source="TokenGeneration_RefreshTokens"), None)
+        self.assertEqual(result["response"]["claimsAndScopeOverrideDetails"]["accessTokenGeneration"]["scopesToSuppress"], ["mcp/write"])
+
+    def test_a_version_1_event_keeps_the_old_format(self):
+        event = group_event("TokenGeneration_Authentication", "CompanySAML_x", "viewers", identities=SAML_IDENTITY)
+        result = signup.handler(event, None)
+        self.assertEqual(result["response"], {"claimsOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": ["viewers"]}}})
+
+    def test_nothing_changes_when_group_scopes_are_not_configured(self):
+        with mock.patch.object(signup, "GROUP_SCOPES", {}):
+            result = signup.handler(v2_event("marketing"), None)
+            self.assertEqual(result["response"], {"claimsAndScopeOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": ["marketing"]}}})
+
+    def test_sign_up_events_do_not_change_scopes(self):
+        event = group_event("PreSignUp_ExternalProvider", "CompanySAML_x", "viewers")
+        self.assertEqual(signup.handler(event, None)["response"], {})
+
+    def test_broken_configuration_is_ignored(self):
+        self.assertEqual(signup._load_group_scopes("not json"), {})
+        self.assertEqual(signup._load_group_scopes('["a"]'), {})
+        self.assertEqual(signup._load_group_scopes('{"Dev": ["mcp/read"]}'), {"dev": ["mcp/read"]})
+
+
 class RedirectUris(unittest.TestCase):
     def test_known_callbacks_are_accepted(self):
         self.assertTrue(dcr.valid_redirect_uris(["https://claude.ai/api/mcp/auth_callback"]))

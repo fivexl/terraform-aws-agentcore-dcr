@@ -50,8 +50,9 @@ resource "aws_cognito_user_pool" "this" {
 
       # Also check at every token issue and refresh, so existing users are covered.
       pre_token_generation_config {
-        lambda_arn     = aws_lambda_function.signup_domain[0].arn
-        lambda_version = "V1_0"
+        lambda_arn = aws_lambda_function.signup_domain[0].arn
+        # Version 2 events are needed to change scopes in the access token (group_scopes).
+        lambda_version = length(var.group_scopes) > 0 ? "V2_0" : "V1_0"
       }
     }
   }
