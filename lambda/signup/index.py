@@ -180,13 +180,14 @@ def scopes_to_suppress(groups):
 def token_response(event, groups):
     """The response for the pre token generation trigger, in the format of the event version Cognito sent."""
     suppress = scopes_to_suppress(groups)
+    if GROUP_SCOPES:
+        logger.info("Scopes by group (groups: %s): removed from the access token: %s", ", ".join(groups) or "none", ", ".join(suppress) or "none")
     if str(event.get("version")) in ("2", "3"):
         details = {}
         if groups:
             details["groupOverrideDetails"] = {"groupsToOverride": groups}
         if suppress:
             details["accessTokenGeneration"] = {"scopesToSuppress": suppress}
-            logger.info("Scopes removed from the access token: %s", ", ".join(suppress))
         return {"claimsAndScopeOverrideDetails": details} if details else None
     # Version 1 events can only set the groups.
     if groups:
