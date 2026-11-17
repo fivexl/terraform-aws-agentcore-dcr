@@ -182,6 +182,19 @@ variable "allowed_groups" {
   }
 }
 
+variable "group_scopes" {
+  description = <<-EOT
+    Roles by group (version 2): maps a group to the custom scopes its members may hold, for example
+    { developers = ["read", "write"], viewers = ["read"] }. The scope names must be in resource_server_scopes.
+    People only keep the scopes their groups allow; the others are removed from their access token. A person in no
+    listed group keeps none of the custom scopes. Needs the Essentials or Plus Cognito plan (the module then asks
+    Cognito for version 2 trigger events) and create_user_pool = true. The gateway does not check scopes by
+    itself: use it together with per-tool rules, or a client or service that reads the scope claim.
+  EOT
+  type        = map(list(string))
+  default     = {}
+}
+
 variable "require_groups_at_gateway" {
   description = "Experimental. Also make the AgentCore Gateway require that the token's cognito:groups claim contains one of allowed_groups (exact, case-sensitive match). The check function already refuses people outside the groups; this adds a second check at the gateway. Test before relying on it."
   type        = bool

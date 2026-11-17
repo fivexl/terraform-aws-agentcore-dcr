@@ -437,7 +437,85 @@ Built, unit-tested, and tested live (12 November 2026) with a Google Workspace S
 Not yet tested live: a person in **several** groups (how Cognito stores the list), IAM Identity Center groups, and `require_groups_at_gateway`.
 To test it yourself: set `groups_attribute` and `allowed_groups`, apply, sign in with a person who is in the group (should work, and `custom:groups` appears on the user in Cognito),
 then change `allowed_groups` to a group the person is not in and sign in again (should be refused, with the reason in the check function's log).
-Next versions: map groups to scopes (read and write) and add per-tool rules with the gateway's Cedar policies.
+Next version: per-tool rules with the gateway's Cedar policies (section 8).
+
+---
+
+## 7. Roles by group (version 2)
+
+Version 1 decides **who may sign in**. Version 2 decides **what they may hold**: each group is mapped to the custom scopes
+(`read`, `write`, ...) its members get. A person keeps only the scopes their groups allow; the others are removed from the access token.
+
+```hcl
+allowed_groups = ["developers", "viewers"]
+group_scopes = {
+  developers = ["read", "write"]
+  viewers    = ["read"]
+}
+```
+
+### How it works
+1. The module asks Cognito for **version 2** events of the pre token generation trigger (needs the Essentials or Plus plan). Version 2 events carry
+   the scopes of the token and let the function change them.
+2. At every token issue and refresh, the check function looks up the person's groups (from `custom:groups`, see section 6), works out which custom
+   scopes they are entitled to (the union over all their groups) and answers with `scopesToSuppress` for the rest.
+3. Standard scopes (`openid`, `email`, `profile`) are never touched. A person in **no** listed group keeps **none** of the custom scopes.
+4. The groups are still written into `cognito:groups`, now in the version 2 response format.
+
+### Limits
+- **The gateway does not read scopes by itself.** Without a rule that checks them, a person without `write` can still call a tool that writes. Use this
+  together with per-tool rules (version 3), or a service that reads the `scope` claim.
+- Scopes are removed, never added: a client only gets a scope it asked for (the registration endpoint grants all of them by default).
+- **The check fails closed.** If Cognito sends a version 1 event (for example while an apply is half done) or `GROUP_SCOPES` is broken, the sign-in is refused instead of
+  giving everyone every scope. The log says why.
+- **Needs the Essentials or Plus Cognito plan.** On the Lite plan the apply fails when the module asks for version 2 events.
+- **Machine-to-machine tokens (client credentials) are not changed.** AWS only sends those to a version 3 trigger, so a client that logs in as itself keeps all its scopes.
+- A group address (`name@domain`) is matched by its name part, so `developers@other.example` gets the scopes of `developers`. Restrict who can send groups at the identity provider.
+- Group names that differ only in upper and lower case are refused at plan time, because the check function compares ignoring case.
+- The scope names in `group_scopes` must exist in `resource_server_scopes` (checked at plan time).
+- Group changes apply at the next full sign-in; on a token refresh the groups stored at the last sign-in are used.
+
+### Status
+Built, unit-tested (scope matching, the version 2 response, the version 1 format kept, refresh tokens) and tested live (16 November 2026) with a
+Google Workspace SAML app: a member of a group mapped to `["read", "write"]` kept both scopes (function log: nothing removed); with the group mapped to `["read"]`
+the function removed `write` and the access token from the login only had `read` in its `scope` claim (and `cognito:groups` still listed the group).
+Not tested: several groups with different scopes, and Identity Center.
+To test it yourself: set `group_scopes`, apply, sign in with the authorization code flow and decode the access token (the `scope` claim should list only the allowed scopes).
+
+---
+
+## 8. Per-tool rules (version 3, design)
+
+Version 2 puts the right scopes into the token. The gateway still lets every signed-in person call every tool. Version 3 closes that gap with
+**AgentCore Policy** (Cedar rules) attached to the gateway. **This section is a design from reading the AWS documentation; nothing here is built or tested.**
+
+### What AWS provides
+- A **policy engine** attached to the gateway (`aws_bedrockagentcore_policy_engine`, `aws_bedrockagentcore_policy` and the gateway's
+  `policy_engine_configuration` exist in the AWS provider). It has a mode setting; start with the mode that only logs, then enforce.
+- For a gateway with OAuth login, the caller is an `AgentCore::OAuthUser`. The claims of the token are its **tags**, so the scope claim can be read
+  with `principal.getTag("scope")`.
+- Each tool is an action named `<TargetName>___<ToolName>` (three underscores), for example `tf-mcp-target___hello`. Cedar has no wildcard actions.
+- The engine is **default-deny**: once attached, a tool with no matching `permit` rule is blocked, and `forbid` always wins.
+
+### Rules we would generate (sketch)
+```cedar
+permit(
+  principal is AgentCore::OAuthUser,
+  action == AgentCore::Action::"tf-mcp-target___hello",
+  resource == AgentCore::Gateway::"<gateway arn>"
+) when { principal.hasTag("scope") && principal.getTag("scope") like "*mcp/read*" };
+```
+A tool that changes things would require the `write` scope in the same way. The settings could look like `tool_scopes = { hello = "read", delete_record = "write" }`.
+
+### Open questions
+- The scope tag is one space-separated string and Cedar's `like` is a pattern match, so a scope name that is part of another (`read` and `read-all`) could match by mistake. Use scope names that do not overlap.
+- Default-deny means a forgotten tool becomes unreachable. The module would create one rule per tool, and the plan must show them.
+- Whether policies also hide tools from the tool list, and how a Runtime-hosted server's tools are named, have to be checked on a real gateway.
+- Per-argument rules (for example limit by country or amount) are possible through `context.input` and are a later step.
+
+### Plan
+1. Create a policy engine and the rules by hand on the test gateway; call a tool with a read-only and a read-write person.
+2. When that works, generate the rules from a setting in the module (default off).
 
 ---
 

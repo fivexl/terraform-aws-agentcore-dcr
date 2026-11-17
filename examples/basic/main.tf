@@ -125,6 +125,12 @@ variable "allowed_groups" {
   default     = []
 }
 
+variable "group_scopes" {
+  description = "Roles by group: maps a group to the scopes its members may hold, for example { developers = [\"read\", \"write\"], viewers = [\"read\"] }. Empty means everyone keeps all scopes."
+  type        = map(list(string))
+  default     = {}
+}
+
 variable "require_groups_at_gateway" {
   description = "Experimental: also make the gateway check the groups claim."
   type        = bool
@@ -234,6 +240,7 @@ module "agentcore_dcr" {
   allowed_email_domains = var.allowed_email_domains
 
   allowed_groups            = var.allowed_groups
+  group_scopes              = var.group_scopes
   require_groups_at_gateway = var.require_groups_at_gateway
 }
 

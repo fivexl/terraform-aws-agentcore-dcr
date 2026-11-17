@@ -72,6 +72,7 @@ For passwordless login set `include_cognito_users = false` and add a provider (s
 | `include_cognito_users` | Set to `false` to remove username and password completely |
 | `allowed_email_domains` | Only people with an email in these domains get in (checked at sign-up and at every token issue). Google and GitHub users must have a verified email; users of a provider listed in `saml_providers` are trusted, because SAML never reports `email_verified` |
 | `allowed_groups` | Only people in one of these groups get tokens (needs a SAML provider with `groups_attribute`). The groups are also written into the token as `cognito:groups`. See [docs/identity-providers.md](docs/identity-providers.md), section 6 |
+| `group_scopes` | Roles by group: maps a group to the custom scopes (for example `read`, `write`) its members keep in the access token. Needs the Essentials or Plus plan. See [docs/identity-providers.md](docs/identity-providers.md), section 7 |
 | `require_groups_at_gateway` | Experimental: the AgentCore Gateway also checks the groups claim |
 | `redirect_uri_allow_patterns` | Which client callback addresses may register |
 | `identity_providers` | Names of providers created elsewhere that clients may use |

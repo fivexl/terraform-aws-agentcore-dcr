@@ -2,7 +2,7 @@
 # approved domain, and who are in an approved group, get tokens. Needs create_user_pool = true.
 # For an existing pool, set this trigger up yourself (see docs).
 locals {
-  restrict_domains = (length(var.allowed_email_domains) > 0 || length(var.allowed_groups) > 0) && var.create_user_pool
+  restrict_domains = (length(var.allowed_email_domains) > 0 || length(var.allowed_groups) > 0 || length(var.group_scopes) > 0) && var.create_user_pool
   # Name used by the user pool for the trigger wiring (same condition).
   restrict_signin = local.restrict_domains
 }
@@ -13,6 +13,24 @@ data "archive_file" "signup" {
   type        = "zip"
   source_dir  = "${path.module}/lambda/signup"
   output_path = "${path.module}/.build/signup.zip"
+}
+
+# Checks of group_scopes that must run even when the check function itself is not created.
+resource "terraform_data" "group_scopes_check" {
+  lifecycle {
+    precondition {
+      condition     = length(var.group_scopes) == 0 || var.create_user_pool
+      error_message = "group_scopes needs create_user_pool = true: the module sets the user pool trigger itself."
+    }
+    precondition {
+      condition     = alltrue([for group, names in var.group_scopes : alltrue([for n in names : contains(var.resource_server_scopes, n)])])
+      error_message = "Every scope in group_scopes must be listed in resource_server_scopes."
+    }
+    precondition {
+      condition     = length(distinct([for group in keys(var.group_scopes) : lower(trimspace(group))])) == length(var.group_scopes) && alltrue([for group in keys(var.group_scopes) : length(trimspace(group)) > 0 && !can(regex(",", group))])
+      error_message = "Group names in group_scopes must not be empty, must not contain a comma, and must differ ignoring case."
+    }
+  }
 }
 
 resource "aws_cloudwatch_log_group" "signup" {
@@ -65,6 +83,9 @@ resource "aws_lambda_function" "signup_domain" {
       ALLOWED_GROUPS        = join(",", var.allowed_groups)
       # SAML providers are the company's own login systems: they never send email_verified.
       TRUSTED_PROVIDERS = join(",", keys(var.saml_providers))
+      # Roles by group (version 2): {group: [full scope names]} and every custom scope the module manages.
+      GROUP_SCOPES    = jsonencode({ for group, names in var.group_scopes : group => [for n in names : "${var.name_prefix}/${n}"] })
+      RESOURCE_SCOPES = join(",", local.resource_scopes)
     }
   }
 
