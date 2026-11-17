@@ -73,6 +73,10 @@ resource "aws_lambda_function" "dcr" {
       RESOURCE_SCOPES       = join(",", local.resource_scopes)
       IDENTITY_PROVIDERS    = join(",", local.client_provider)
       REDIRECT_URI_PATTERNS = jsonencode(var.redirect_uri_allow_patterns)
+      REGISTRATION_ENABLED  = tostring(var.registration_enabled)
+      MAX_CLIENTS           = tostring(var.max_registered_clients)
+      ACCESS_TOKEN_MINUTES  = tostring(var.access_token_validity_minutes)
+      REFRESH_TOKEN_HOURS   = tostring(var.refresh_token_validity_hours)
     }
   }
 

@@ -23,6 +23,26 @@ resource "terraform_data" "group_scopes_check" {
       error_message = "group_scopes needs create_user_pool = true: the module sets the user pool trigger itself."
     }
     precondition {
+      condition     = length(var.allowed_email_domains) == 0 || var.create_user_pool
+      error_message = "allowed_email_domains needs create_user_pool = true: the module sets the user pool trigger itself. For an existing pool set the trigger up yourself, otherwise the restriction would silently not apply."
+    }
+    precondition {
+      condition     = length(var.allowed_groups) == 0 || var.create_user_pool
+      error_message = "allowed_groups needs create_user_pool = true: the module sets the user pool trigger itself. For an existing pool set the trigger up yourself, otherwise the restriction would silently not apply."
+    }
+    precondition {
+      condition     = length(var.allowed_groups) == 0 || anytrue([for k, v in var.saml_providers : v.groups_attribute != null])
+      error_message = "allowed_groups is set but no SAML provider has groups_attribute, so nobody could ever sign in."
+    }
+    precondition {
+      condition     = !var.require_groups_at_gateway || length(var.allowed_groups) > 0
+      error_message = "require_groups_at_gateway = true needs allowed_groups: with an empty list the gateway check would silently do nothing."
+    }
+    precondition {
+      condition     = alltrue([for s in var.gateway_required_scopes : contains(var.resource_server_scopes, s)])
+      error_message = "Every scope in gateway_required_scopes must be listed in resource_server_scopes."
+    }
+    precondition {
       condition     = alltrue([for group, names in var.group_scopes : alltrue([for n in names : contains(var.resource_server_scopes, n)])])
       error_message = "Every scope in group_scopes must be listed in resource_server_scopes."
     }

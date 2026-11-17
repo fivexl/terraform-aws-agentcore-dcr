@@ -57,6 +57,9 @@ resource "aws_bedrockagentcore_gateway" "this" {
         aws_cognito_user_pool_client.initial.id,
       ]
 
+      # Optional: the token must carry at least one of these scopes. null, not an empty list, when unused: an empty list is sent to the API and refused.
+      allowed_scopes = length(var.gateway_required_scopes) > 0 ? [for s in var.gateway_required_scopes : "${var.name_prefix}/${s}"] : null
+
       # Optional second check: the token's cognito:groups claim must contain one of the allowed groups.
       dynamic "custom_claim" {
         for_each = var.require_groups_at_gateway && length(var.allowed_groups) > 0 ? [1] : []

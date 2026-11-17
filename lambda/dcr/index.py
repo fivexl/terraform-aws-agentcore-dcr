@@ -37,6 +37,12 @@ ALLOWED_SCOPES = BASE_SCOPES + RESOURCE_SCOPES
 
 GATEWAY_UPDATE_ATTEMPTS = 4
 
+# Controls on the public registration endpoint.
+REGISTRATION_ENABLED = os.environ.get("REGISTRATION_ENABLED", "true").lower() == "true"
+MAX_CLIENTS = int(os.environ.get("MAX_CLIENTS", "0") or "0")
+ACCESS_TOKEN_MINUTES = int(os.environ.get("ACCESS_TOKEN_MINUTES", "60") or "60")
+REFRESH_TOKEN_HOURS = int(os.environ.get("REFRESH_TOKEN_HOURS", "24") or "24")
+
 
 def response(status_code, body):
     return {
@@ -99,11 +105,19 @@ def add_client_to_gateway(client_id):
             raise
 
 
+def count_clients():
+    """Number of app clients in the user pool."""
+    total = 0
+    for page in cognito.get_paginator("list_user_pool_clients").paginate(UserPoolId=USER_POOL_ID, PaginationConfig={"PageSize": 60}):
+        total += len(page.get("UserPoolClients", []))
+    return total
+
+
 def valid_redirect_uris(uris):
     if not isinstance(uris, list) or not uris:
         return False
     for uri in uris:
-        if not isinstance(uri, str) or len(uri) > 2048:
+        if not isinstance(uri, str) or len(uri) > 2048 or re.search(r"[\s\x00-\x1f]", uri):
             return False
         # Fail closed: with no patterns configured nothing matches and every registration is refused.
         if not any(p.match(uri) for p in REDIRECT_PATTERNS):
@@ -112,6 +126,9 @@ def valid_redirect_uris(uris):
 
 
 def handler(event, context):
+    if not REGISTRATION_ENABLED:
+        return error(403, "access_denied", "Client registration is switched off.")
+
     try:
         body = json.loads(event.get("body") or "{}")
     except json.JSONDecodeError:
@@ -135,12 +152,29 @@ def handler(event, context):
     requested = [s for s in str(body.get("scope", "")).split() if s]
     scopes = [s for s in requested if s in ALLOWED_SCOPES] or ALLOWED_SCOPES
 
+    if MAX_CLIENTS:
+        try:
+            existing = count_clients()
+        except ClientError as exc:
+            logger.error("list_user_pool_clients failed: %s", exc.response.get("Error", {}).get("Code", ""))
+            return error(500, "server_error", "Client registration failed.")
+        if existing >= MAX_CLIENTS:
+            logger.warning("Registration refused: %d clients, cap %d", existing, MAX_CLIENTS)
+            return error(429, "temporarily_unavailable", "Too many registered clients. Try again later.")
+
     try:
         created = cognito.create_user_pool_client(
             UserPoolId=USER_POOL_ID,
             ClientName=client_name,
             GenerateSecret=not public_client,
-            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"],
+            # Codes and refresh tokens are redeemed at /oauth2/token, which no explicit auth flow governs. No SRP: a native user cannot sign in directly.
+            ExplicitAuthFlows=["ALLOW_REFRESH_TOKEN_AUTH"],
+            EnableTokenRevocation=True,
+            PreventUserExistenceErrors="ENABLED",
+            AccessTokenValidity=ACCESS_TOKEN_MINUTES,
+            IdTokenValidity=ACCESS_TOKEN_MINUTES,
+            RefreshTokenValidity=REFRESH_TOKEN_HOURS,
+            TokenValidityUnits={"AccessToken": "minutes", "IdToken": "minutes", "RefreshToken": "hours"},
             AllowedOAuthFlows=["code"],
             AllowedOAuthScopes=scopes,
             AllowedOAuthFlowsUserPoolClient=True,

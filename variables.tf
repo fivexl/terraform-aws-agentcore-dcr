@@ -257,4 +257,59 @@ variable "tags" {
   default     = {}
 }
 
+variable "registration_enabled" {
+  description = "Switch for POST /register. false answers every registration with 403, so no new clients appear (existing clients keep working). Use it when you are not onboarding clients."
+  type        = bool
+  default     = true
+}
 
+variable "max_registered_clients" {
+  description = "Hard cap on the number of app clients in the user pool. When the pool has this many, /register answers 429 instead of creating one. 0 means no cap (Cognito's own limit, 1,000 by default, still applies; every reconnect of a client registers a new one, so a cap or a clean-up is advisable)."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.max_registered_clients >= 0
+    error_message = "max_registered_clients must be 0 (no cap) or more."
+  }
+}
+
+variable "access_token_validity_minutes" {
+  description = "How long an access token is valid, for the initial client and every registered client."
+  type        = number
+  default     = 60
+
+  validation {
+    condition     = var.access_token_validity_minutes >= 5 && var.access_token_validity_minutes <= 1440
+    error_message = "access_token_validity_minutes must be between 5 and 1440."
+  }
+}
+
+variable "refresh_token_validity_hours" {
+  description = "How long a refresh token is valid. This is also how long a person keeps access after they are removed at the identity provider, because the groups and the account are only checked again at the next full sign-in. Shorter is safer; people sign in again more often."
+  type        = number
+  default     = 24
+
+  validation {
+    condition     = var.refresh_token_validity_hours >= 1 && var.refresh_token_validity_hours <= 8760
+    error_message = "refresh_token_validity_hours must be between 1 and 8760."
+  }
+}
+
+variable "user_pool_deletion_protection" {
+  description = "Protect the user pool from deletion. Deleting it removes every user and client at once. Needs create_user_pool = true."
+  type        = bool
+  default     = false
+}
+
+variable "allow_self_signup" {
+  description = "Allow people to create their own Cognito account in the hosted login. false (the default) means only an administrator creates native users; people from SAML and OpenID Connect providers are not affected. Needs create_user_pool = true."
+  type        = bool
+  default     = false
+}
+
+variable "gateway_required_scopes" {
+  description = "Scope names (from resource_server_scopes) of which a token must carry at least one for the Gateway to accept it, for example [\"read\"]. Together with group_scopes this is what turns the scopes into an access decision at the gateway: a person with none of them is refused. Empty means the Gateway does not check scopes. Which scopes AgentCore requires when several are listed (any one or all) is not verified, so list one until it is tested."
+  type        = list(string)
+  default     = []
+}

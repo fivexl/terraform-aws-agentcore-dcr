@@ -69,29 +69,33 @@ For passwordless login set `include_cognito_users = false` and add a provider (s
 | `oidc_providers` / `oidc_client_secrets` | Create Google or generic OIDC sign-in providers in the user pool (secrets kept separate) |
 | `saml_providers` | Create SAML providers (Google Workspace SAML app, IAM Identity Center) from a metadata file or address. `groups_attribute` names the SAML attribute that carries the person's groups |
 | `oidc_providers[*].endpoints` | Manual authorize, token, userinfo and key addresses, for providers whose discovery document does not work with Cognito (used for GitHub) |
-| `include_cognito_users` | Set to `false` to remove username and password completely |
+| `include_cognito_users` | Set to `false` to take the Cognito login out of the clients, so people can only sign in through an identity provider. Clients no longer allow the direct password flow (SRP), so a native user cannot sign in to them without the hosted login |
 | `allowed_email_domains` | Only people with an email in these domains get in (checked at sign-up and at every token issue). Google and GitHub users must have a verified email; users of a provider listed in `saml_providers` are trusted, because SAML never reports `email_verified` |
 | `allowed_groups` | Only people in one of these groups get tokens (needs a SAML provider with `groups_attribute`). The groups are also written into the token as `cognito:groups`. See [docs/identity-providers.md](docs/identity-providers.md), section 6 |
 | `group_scopes` | Roles by group: maps a group to the custom scopes (for example `read`, `write`) its members keep in the access token. Needs the Essentials or Plus plan. See [docs/identity-providers.md](docs/identity-providers.md), section 7 |
 | `require_groups_at_gateway` | Experimental: the AgentCore Gateway also checks the groups claim |
 | `redirect_uri_allow_patterns` | Which client callback addresses may register |
+| `registration_enabled` / `max_registered_clients` | Controls on the public `/register`: switch it off, or cap the number of app clients in the pool (429 when full) |
+| `gateway_required_scopes` | The Gateway refuses a token that carries none of these scopes. With `group_scopes` this makes the roles an access decision (not verified live yet which scopes AgentCore requires when several are listed) |
+| `access_token_validity_minutes` / `refresh_token_validity_hours` | Token lifetimes of every client. The refresh token (default 24 hours) is how long a person keeps access after being removed at the identity provider |
+| `user_pool_deletion_protection` / `allow_self_signup` | Protect the pool from deletion; allow people to create their own Cognito account (off by default) |
 | `identity_providers` | Names of providers created elsewhere that clients may use |
 
 ## Tests
 ```
 python -m unittest discover -s tests -v
 ```
-They cover the email check and the callback address check of the two Lambda functions (no AWS access needed).
+They cover the sign-in check (email, groups, scopes) and the registration function (redirect addresses, the controls and the hardened client settings), with the AWS clients mocked (no AWS access needed).
 Install the checks that run before each commit with `pip install pre-commit && pre-commit install`.
 
 ## Known limitations
-- **`/register` is open to the internet by design.** Keep the redirect allow list tight and delete the stack when you are not testing.
+- **`/register` is open to the internet by design.** Keep the redirect allow list tight, set `max_registered_clients`, switch it off with `registration_enabled = false` when you are not onboarding clients, and delete the stack when you are not testing.
 - **Issuer mismatch.** The login description is served from the API's address but names Cognito as the issuer.
   Strict clients (the MCP Inspector) reject this; Claude Code and Cursor accepted it in testing.
   A complete fix probably needs a proxy in front of the Gateway.
-- Every connection attempt registers a new client; old clients are not cleaned up yet.
+- Every connection attempt registers a new client; old clients are not cleaned up yet (use `max_registered_clients` as a stop gap).
 - A client that asks for no valid scope gets all scopes the module knows (including `write`). Consider narrowing this before real use.
-- A token that was already issued stays valid until it expires, also after a person leaves the company.
+- A token that was already issued stays valid until it expires, and a refresh token until `refresh_token_validity_hours` has passed, also after a person leaves the company.
 - Client secrets (Google, GitHub) end up in the Terraform state, and the GitHub secret also in the Lambda settings. Use an encrypted remote state and never commit state files.
 - Tested login providers: Cognito users, Google (OIDC), GitHub (through a community wrapper, experimental: no organisation check, signing key bundled in the code)
   and SAML with a Google Workspace app and with an IAM Identity Center customer managed application.

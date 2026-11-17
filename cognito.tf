@@ -27,6 +27,13 @@ resource "aws_cognito_user_pool" "this" {
   name = "${var.name_prefix}-pool"
   tags = var.tags
 
+  deletion_protection = var.user_pool_deletion_protection ? "ACTIVE" : "INACTIVE"
+
+  # Only an administrator creates native users. People from SAML and OpenID Connect providers are not affected.
+  admin_create_user_config {
+    allow_admin_create_user_only = !var.allow_self_signup
+  }
+
   # Custom attribute that receives the groups sent by SAML providers (custom:groups). It is always created:
   # Cognito can add attributes to an existing pool but never change or remove them, so tying it to a setting
   # would make switching the groups feature off fail with "cannot modify or remove schema items".
@@ -140,8 +147,22 @@ resource "aws_cognito_user_pool_client" "initial" {
   name         = "${var.name_prefix}-initial-client"
   user_pool_id = local.user_pool_id
 
-  generate_secret                      = false
-  explicit_auth_flows                  = ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"]
+  generate_secret = false
+  # The client only redeems codes and refresh tokens at /oauth2/token, which no explicit auth flow governs. Leaving out SRP means
+  # a native Cognito user cannot sign in to this client directly with a password, so include_cognito_users = false is real.
+  explicit_auth_flows           = ["ALLOW_REFRESH_TOKEN_AUTH"]
+  enable_token_revocation       = true
+  prevent_user_existence_errors = "ENABLED"
+  access_token_validity         = var.access_token_validity_minutes
+  id_token_validity             = var.access_token_validity_minutes
+  refresh_token_validity        = var.refresh_token_validity_hours
+
+  token_validity_units {
+    access_token  = "minutes"
+    id_token      = "minutes"
+    refresh_token = "hours"
+  }
+
   allowed_oauth_flows                  = ["code"]
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_scopes                 = local.all_scopes

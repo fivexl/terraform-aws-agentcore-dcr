@@ -351,6 +351,72 @@ class RedirectUris(unittest.TestCase):
             dcr.REDIRECT_PATTERNS = original
 
 
+def register_event(**extra):
+    body = {"client_name": "Claude Code", "redirect_uris": ["http://localhost:1234/callback"], "token_endpoint_auth_method": "none"}
+    body.update(extra)
+    return {"body": json.dumps(body)}
+
+
+class RegistrationControls(unittest.TestCase):
+    """The controls on the public registration endpoint, and the hardened clients it creates."""
+
+    def setUp(self):
+        self.cognito = mock.MagicMock()
+        self.cognito.create_user_pool_client.return_value = {"UserPoolClient": {"ClientId": "client-1", "ClientSecret": "s3cret"}}
+        patches = [
+            mock.patch.object(dcr, "cognito", self.cognito),
+            mock.patch.object(dcr, "add_client_to_gateway"),
+            mock.patch.object(dcr, "REGISTRATION_ENABLED", True),
+            mock.patch.object(dcr, "MAX_CLIENTS", 0),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_a_registration_can_be_switched_off(self):
+        with mock.patch.object(dcr, "REGISTRATION_ENABLED", False):
+            result = dcr.handler(register_event(), None)
+        self.assertEqual(result["statusCode"], 403)
+        self.cognito.create_user_pool_client.assert_not_called()
+
+    def test_the_cap_refuses_a_registration_when_the_pool_is_full(self):
+        with mock.patch.object(dcr, "MAX_CLIENTS", 2), mock.patch.object(dcr, "count_clients", return_value=2):
+            result = dcr.handler(register_event(), None)
+        self.assertEqual(result["statusCode"], 429)
+        self.cognito.create_user_pool_client.assert_not_called()
+
+    def test_below_the_cap_a_client_is_created(self):
+        with mock.patch.object(dcr, "MAX_CLIENTS", 2), mock.patch.object(dcr, "count_clients", return_value=1):
+            result = dcr.handler(register_event(), None)
+        self.assertEqual(result["statusCode"], 201)
+
+    def test_no_cap_means_no_count_is_made(self):
+        with mock.patch.object(dcr, "count_clients") as counter:
+            dcr.handler(register_event(), None)
+        counter.assert_not_called()
+
+    def test_clients_are_created_hardened(self):
+        result = dcr.handler(register_event(), None)
+        self.assertEqual(result["statusCode"], 201)
+        kwargs = self.cognito.create_user_pool_client.call_args.kwargs
+        self.assertNotIn("ALLOW_USER_SRP_AUTH", kwargs["ExplicitAuthFlows"])
+        self.assertEqual(kwargs["ExplicitAuthFlows"], ["ALLOW_REFRESH_TOKEN_AUTH"])
+        self.assertTrue(kwargs["EnableTokenRevocation"])
+        self.assertEqual(kwargs["PreventUserExistenceErrors"], "ENABLED")
+        self.assertEqual(kwargs["RefreshTokenValidity"], dcr.REFRESH_TOKEN_HOURS)
+        self.assertEqual(kwargs["TokenValidityUnits"]["RefreshToken"], "hours")
+
+    def test_redirect_uris_with_whitespace_or_control_characters_are_refused(self):
+        for uri in ("http://localhost:1234/cb\n", "http://localhost:1234/ cb", "http://localhost:1234/\x00"):
+            self.assertFalse(dcr.valid_redirect_uris([uri]), repr(uri))
+
+    def test_counting_clients_adds_up_every_page(self):
+        paginator = mock.MagicMock()
+        paginator.paginate.return_value = [{"UserPoolClients": [1, 2, 3]}, {"UserPoolClients": [4]}]
+        self.cognito.get_paginator.return_value = paginator
+        self.assertEqual(dcr.count_clients(), 4)
+
+
 class RegisterHandler(unittest.TestCase):
     def test_bad_json_gets_400(self):
         result = dcr.handler({"body": "not json"}, None)

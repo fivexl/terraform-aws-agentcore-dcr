@@ -125,6 +125,12 @@ variable "allowed_groups" {
   default     = []
 }
 
+variable "gateway_required_scopes" {
+  description = "Scope names a token must carry (at least one of) for the gateway to accept it, for example [\"read\"]. Empty means the gateway does not check scopes."
+  type        = list(string)
+  default     = []
+}
+
 variable "group_scopes" {
   description = "Roles by group: maps a group to the scopes its members may hold, for example { developers = [\"read\", \"write\"], viewers = [\"read\"] }. Empty means everyone keeps all scopes."
   type        = map(list(string))
@@ -241,6 +247,7 @@ module "agentcore_dcr" {
 
   allowed_groups            = var.allowed_groups
   group_scopes              = var.group_scopes
+  gateway_required_scopes   = var.gateway_required_scopes
   require_groups_at_gateway = var.require_groups_at_gateway
 }
 
