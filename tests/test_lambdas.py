@@ -269,10 +269,11 @@ class GroupScopes(unittest.TestCase):
         result = signup.handler(v2_event("viewers", source="TokenGeneration_RefreshTokens"), None)
         self.assertEqual(result["response"]["claimsAndScopeOverrideDetails"]["accessTokenGeneration"]["scopesToSuppress"], ["mcp/write"])
 
-    def test_a_version_1_event_keeps_the_old_format(self):
-        event = group_event("TokenGeneration_Authentication", "CompanySAML_x", "viewers", identities=SAML_IDENTITY)
-        result = signup.handler(event, None)
-        self.assertEqual(result["response"], {"claimsOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": ["viewers"]}}})
+    def test_a_version_1_event_keeps_the_old_format_when_group_scopes_are_not_set(self):
+        with mock.patch.object(signup, "GROUP_SCOPES", {}):
+            event = group_event("TokenGeneration_Authentication", "CompanySAML_x", "viewers", identities=SAML_IDENTITY)
+            result = signup.handler(event, None)
+            self.assertEqual(result["response"], {"claimsOverrideDetails": {"groupOverrideDetails": {"groupsToOverride": ["viewers"]}}})
 
     def test_nothing_changes_when_group_scopes_are_not_configured(self):
         with mock.patch.object(signup, "GROUP_SCOPES", {}):
@@ -283,10 +284,48 @@ class GroupScopes(unittest.TestCase):
         event = group_event("PreSignUp_ExternalProvider", "CompanySAML_x", "viewers")
         self.assertEqual(signup.handler(event, None)["response"], {})
 
-    def test_broken_configuration_is_ignored(self):
-        self.assertEqual(signup._load_group_scopes("not json"), {})
-        self.assertEqual(signup._load_group_scopes('["a"]'), {})
+    def test_a_broken_configuration_stops_the_function_instead_of_giving_every_scope(self):
+        with self.assertRaises(ValueError):
+            signup._load_group_scopes("not json")
+        with self.assertRaises(ValueError):
+            signup._load_group_scopes('["a"]')
+        with self.assertRaises(ValueError):
+            signup._load_group_scopes('{"dev": "mcp/read"}')
+
+    def test_group_names_are_lower_cased_and_an_empty_value_means_off(self):
         self.assertEqual(signup._load_group_scopes('{"Dev": ["mcp/read"]}'), {"dev": ["mcp/read"]})
+        self.assertEqual(signup._load_group_scopes(""), {})
+        self.assertEqual(signup._load_group_scopes("{}"), {})
+        self.assertEqual(signup._load_group_scopes(None), {})
+
+    def test_a_version_1_event_is_refused_when_group_scopes_are_set(self):
+        event = group_event("TokenGeneration_Authentication", "CompanySAML_x", "viewers", identities=SAML_IDENTITY)
+        with self.assertRaises(Exception) as caught:
+            signup.handler(event, None)
+        self.assertIn("not available", str(caught.exception))
+
+    def test_a_missing_version_counts_as_version_1(self):
+        event = v2_event("viewers")
+        del event["version"]
+        with self.assertRaises(Exception):
+            signup.handler(event, None)
+
+    def test_a_version_3_event_is_handled_like_version_2(self):
+        result = signup.handler(v2_event("viewers", version="3"), None)
+        self.assertEqual(result["response"]["claimsAndScopeOverrideDetails"]["accessTokenGeneration"]["scopesToSuppress"], ["mcp/write"])
+
+    def test_allowed_groups_and_group_scopes_work_together(self):
+        with mock.patch.object(signup, "ALLOWED_GROUPS", ["viewers", "developers"]):
+            self.assertEqual(self.suppressed("viewers"), ["mcp/write"])
+            with self.assertRaises(Exception):
+                signup.handler(v2_event("marketing"), None)
+
+    def test_a_person_without_groups_is_refused_when_groups_are_required(self):
+        with mock.patch.object(signup, "ALLOWED_GROUPS", ["developers"]):
+            event = v2_event("")
+            event["request"]["userAttributes"].pop("custom:groups")
+            with self.assertRaises(Exception):
+                signup.handler(event, None)
 
 
 class RedirectUris(unittest.TestCase):

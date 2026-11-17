@@ -47,18 +47,23 @@ GROUPS_ATTRIBUTE = "custom:groups"
 
 
 def _load_group_scopes(raw):
+    """Parse GROUP_SCOPES. A broken value stops the function: roles are a security setting, so a typo must not silently give everyone every scope."""
+    if not raw or not raw.strip():
+        return {}
     try:
-        data = json.loads(raw or "{}")
-    except ValueError:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {str(g).strip().lower(): [str(s) for s in scopes] for g, scopes in data.items() if isinstance(scopes, list)}
+        data = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError(f"GROUP_SCOPES is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or any(not isinstance(scopes, list) for scopes in data.values()):
+        raise ValueError("GROUP_SCOPES must be a JSON object that maps each group to a list of scopes")
+    return {str(g).strip().lower(): [str(s) for s in scopes] for g, scopes in data.items()}
 
 
 # {group (lower case): [full scope names]} and every custom scope the module manages.
 GROUP_SCOPES = _load_group_scopes(os.environ.get("GROUP_SCOPES"))
 CUSTOM_SCOPES = [s.strip() for s in os.environ.get("RESOURCE_SCOPES", "").split(",") if s.strip()]
+if GROUP_SCOPES and not CUSTOM_SCOPES:
+    raise ValueError("GROUP_SCOPES is set but RESOURCE_SCOPES is empty: no scope could be removed")
 
 
 def provider_of(event, attributes):
@@ -180,6 +185,10 @@ def scopes_to_suppress(groups):
 def token_response(event, groups):
     """The response for the pre token generation trigger, in the format of the event version Cognito sent."""
     suppress = scopes_to_suppress(groups)
+    if GROUP_SCOPES and str(event.get("version")) not in ("2", "3"):
+        # Scopes can only be removed by version 2 events. Issuing the token anyway would give everyone every scope.
+        logger.error("GROUP_SCOPES is set but Cognito sent a version %s event: set the pre token generation trigger to V2_0", event.get("version", "1"))
+        raise Exception("Roles by group are not available right now.")
     if GROUP_SCOPES:
         logger.info("Scopes by group (groups: %s): removed from the access token: %s", ", ".join(groups) or "none", ", ".join(suppress) or "none")
     if str(event.get("version")) in ("2", "3"):
